@@ -24,67 +24,33 @@
  * THE SOFTWARE.
  */
 
-#ifndef analyze_peakdetect_h_
-#define analyze_peakdetect_h_
+#include "analyze_attack.h"
 
-#include "Arduino.h"
-#include "AudioStream.h"
 
-class AudioAnalyzePeak : public AudioStream
+void AudioAnalyzeAttack::update(void)
 {
-public:
-	AudioAnalyzePeak(void) : AudioStream(1, inputQueueArray) {
-		min_sample = 32767;
-		max_sample = -32768;
-	}
-	bool available(void) {
-		__disable_irq();
-		bool flag = new_output;
-		if (flag) new_output = false;
-		__enable_irq();
-		return flag;
-	}
-	float read(void) {
-		__disable_irq();
-		int min = min_sample;
-		int max = max_sample;
-		min_sample = 32767;
-		max_sample = -32768;
-		__enable_irq();
-		min = abs(min);
-		max = abs(max);
-		if (min > max) max = min;
-		return (float)max / 32767.0f;
-	}
-// wolke
-	float readFull(void) {
-		__disable_irq();
-		int min = min_sample;
-		int max = max_sample;
-		min_sample = 32767;
-		max_sample = -32768;
-		__enable_irq();
+	audio_block_t *block;
+	const int16_t *p, *end;
+	int32_t min, max;
 
-		if (min > max) max = min;
-		return (float)max / 32767.0f;
+	block = receiveReadOnly();
+	if (!block) {
+		return;
 	}
-// wolke end
-	float readPeakToPeak(void) {
-		__disable_irq();
-		int min = min_sample;
-		int max = max_sample;
-		min_sample = 32767;
-		max_sample = -32768;
-		__enable_irq();
-		return (float)(max - min) / 32767.0f;
-	}
-
-	virtual void update(void);
-private:
-	audio_block_t *inputQueueArray[1];
-	volatile bool new_output;
-	int16_t min_sample;
-	int16_t max_sample;
-};
-
-#endif
+	p = block->data;
+	end = p + AUDIO_BLOCK_SAMPLES;
+	min = min_sample;
+	max = max_sample;
+	do {
+		int16_t d=*p++;
+		// TODO: can we speed this up with SSUB16 and SEL
+		// http://www.m4-unleashed.com/parallel-comparison/
+		if (d<min) min=d;
+		if (d>max) max=d;
+	} while (p < end);
+	min_sample = min;
+	max_sample = max;
+	new_output = true;
+	release(block);
+        calculate();
+}
