@@ -38,12 +38,12 @@
 // It's very unlikely anyone could hear any difference, but if you
 // care deeply about numerical precision in seldom-used cases,
 // uncomment this to improve the control signal accuracy
-//#define IMPROVE_HIGH_FREQUENCY_ACCURACY
+#define IMPROVE_HIGH_FREQUENCY_ACCURACY
 
 // This increases the exponential approximation accuracy from
 // about 0.341% error to only 0.012% error, which probably makes
 // no audible difference.
-//#define IMPROVE_EXPONENTIAL_ACCURACY
+#define IMPROVE_EXPONENTIAL_ACCURACY
 
 #if defined(KINETISK)
 
