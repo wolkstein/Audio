@@ -392,6 +392,7 @@ span.mainfunction {color: #993300; font-weight: bolder}
 		{"type":"AudioFilterBiquad","data":{"defaults":{"name":{"value":"new"}},"shortName":"biquad","inputs":1,"outputs":1,"category":"filter-function","color":"#E6E0F8","icon":"arrow-in.png"}},
 		{"type":"AudioFilterFIR","data":{"defaults":{"name":{"value":"new"}},"shortName":"fir","inputs":1,"outputs":1,"category":"filter-function","color":"#E6E0F8","icon":"arrow-in.png"}},
 		{"type":"AudioFilterStateVariable","data":{"defaults":{"name":{"value":"new"}},"shortName":"filter","inputs":2,"outputs":3,"category":"filter-function","color":"#E6E0F8","icon":"arrow-in.png"}},
+		{"type":"AudioAnalyzeAttack","data":{"defaults":{"name":{"value":"new"}},"shortName":"attack","inputs":1,"outputs":0,"category":"analyze-function","color":"#E6E0F8","icon":"arrow-in.png"}},
 		{"type":"AudioAnalyzePeak","data":{"defaults":{"name":{"value":"new"}},"shortName":"peak","inputs":1,"outputs":0,"category":"analyze-function","color":"#E6E0F8","icon":"arrow-in.png"}},
 		{"type":"AudioAnalyzeRMS","data":{"defaults":{"name":{"value":"new"}},"shortName":"rms","inputs":1,"outputs":0,"category":"analyze-function","color":"#E6E0F8","icon":"arrow-in.png"}},
 		{"type":"AudioAnalyzeFFT256","data":{"defaults":{"name":{"value":"new"}},"shortName":"fft256","inputs":1,"outputs":0,"category":"analyze-function","color":"#E6E0F8","icon":"arrow-in.png"}},
@@ -2898,6 +2899,38 @@ double s_freq = .0625;</p>
 	</p>
 </script>
 <script type="text/x-red" data-template-name="AudioFilterFIR">
+	<div class="form-row">
+		<label for="node-input-name"><i class="fa fa-tag"></i> Name</label>
+		<input type="text" id="node-input-name" placeholder="Name">
+	</div>
+</script>
+
+<script type="text/x-red" data-help-name="AudioAnalyzeAttack">
+	<h3>Summary</h3>
+	<div class=tooltipinfo>
+	<p>Track an signal attack.</p>
+	</div>
+	<h3>Audio Connections</h3>
+	<table class=doc align=center cellpadding=3>
+		<tr class=top><th>Port</th><th>Purpose</th></tr>
+		<tr class=odd><td align=center>In 0</td><td>Signal to analyze</td></tr>
+	</table>
+	<h3>Functions</h3>
+	<p class=func><span class=keyword>set</span>(int32_t treshold, int32_t falldown, uint16_t bouncetime,void myCallbackFunction(bool attack));</p>
+	<p class=desc>configure attack detection.
+	</p>
+	<p class=func><span class=keyword>setCallbackActive</span>(bool);</p>
+	<p class=desc>enable or disable callback.
+	</p>
+	<p class=func><span class=keyword>peakInfo</span>();</p>
+	<p class=desc>Return the calculated signal peak based on function settings.
+	</p>
+	<h3>Examples</h3>
+	<h3>Notes</h3>
+	<p></p>
+</script>
+
+<script type="text/x-red" data-template-name="AudioAnalyzeAttack">
 	<div class="form-row">
 		<label for="node-input-name"><i class="fa fa-tag"></i> Name</label>
 		<input type="text" id="node-input-name" placeholder="Name">
