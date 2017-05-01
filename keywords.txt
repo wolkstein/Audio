@@ -21,6 +21,7 @@ AudioControlCS4272	KEYWORD2
 AudioControlCS42448	KEYWORD2
 AudioMemory	KEYWORD2
 
+AudioAnalyzeAttack KEYWORD2
 AudioAnalyzeFFT256	KEYWORD2
 AudioAnalyzeFFT1024	KEYWORD2
 AudioAnalyzePeak	KEYWORD2

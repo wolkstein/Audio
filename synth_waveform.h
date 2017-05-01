@@ -31,6 +31,7 @@
 #include "AudioStream.h"
 #include "arm_math.h"
 
+
 // waveforms.c
 extern "C" {
 extern const int16_t AudioWaveformSine[257];
@@ -49,6 +50,7 @@ extern const int16_t AudioWaveformSine[257];
 #define WAVEFORM_SAWTOOTH_REVERSE 6
 #define WAVEFORM_SAMPLE_HOLD 7
 
+
 // todo: remove these...
 #define TONE_TYPE_SINE     0
 #define TONE_TYPE_SAWTOOTH 1
@@ -62,14 +64,16 @@ public:
   AudioSynthWaveform(void) : 
   AudioStream(0,NULL), tone_amp(0), tone_freq(0),
   tone_phase(0), tone_width(0.25), tone_incr(0), tone_type(0),
-  tone_offset(0), arbdata(NULL)
-  { 
+  tone_offset(0), arbdata(NULL), cycles(0), use_cycles(false),
+  last_cycle_val(0), roundsinperiod(0), rounds(0)
+  {
   }
   
   void frequency(float t_freq) {
     if (t_freq < 0.0) t_freq = 0.0;
     else if (t_freq > AUDIO_SAMPLE_RATE_EXACT / 2) t_freq = AUDIO_SAMPLE_RATE_EXACT / 2;
     tone_incr = (t_freq * (0x80000000LL/AUDIO_SAMPLE_RATE_EXACT)) + 0.5;
+    rounds = 4294967295 / tone_incr / 2;
   }
   void phase(float angle) {
     if (angle < 0.0) angle = 0.0;
@@ -110,6 +114,14 @@ public:
 	frequency(t_freq);
 	begin(t_type);
   }
+  void begin(float t_amp, float t_freq, short t_type, uint16_t cycle) {
+        cycles = cycle;
+        use_cycles = false;
+        if(cycles > 0) use_cycles = true;
+	amplitude(t_amp);
+	frequency(t_freq);
+	begin(t_type);
+  }
   void arbitraryWaveform(const int16_t *data, float maxFreq) {
 	arbdata = data;
   }
@@ -127,6 +139,13 @@ private:
   short    tone_type;
   int16_t  tone_offset;
   const int16_t *arbdata;
+  volatile uint16_t cycles;
+  bool use_cycles;
+  short last_cycle_val;
+  
+  uint32_t roundsinperiod;
+  uint32_t rounds;
+
 };
 
 

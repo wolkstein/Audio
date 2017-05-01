@@ -24,6 +24,7 @@
  * THE SOFTWARE.
  */
 
+
 #include "synth_waveform.h"
 #include "arm_math.h"
 #include "utility/dspinst.h"
@@ -34,7 +35,7 @@
 //				faster than arm's sin function
 // PAH 140316 - fix calculation of sample (amplitude error)
 // PAH 140314 - change t_hi from int to float
-
+// lenght of uint32_t 4294967295 oder 4,294,967,295
 
 void AudioSynthWaveform::update(void)
 {
@@ -78,16 +79,39 @@ void AudioSynthWaveform::update(void)
       }
       // len = 256
       for (int i = 0; i < AUDIO_BLOCK_SAMPLES;i++) {
+                roundsinperiod +=1;
 		index = tone_phase >> 23;
 		val1 = *(arbdata + index);
-		val2 = *(arbdata + ((index + 1) & 255));
-		scale = (tone_phase >> 7) & 0xFFFF;
-		val2 *= scale;
-		val1 *= 0xFFFF - scale;
-		val3 = (val1 + val2) >> 16;
-		*bp++ = (short)((val3 * tone_amp) >> 15);
+                
+                if((use_cycles && cycles < 1 && roundsinperiod > rounds -6 )){
+                    val3 = *(arbdata + 255);
+                    *bp++ = (short)((val3 * tone_amp) >> 15);
+                    roundsinperiod = rounds;
+                }
+                else
+                {
+                    val2 = *(arbdata + ((index + 1) & 255));
+                    scale = (tone_phase >> 7) & 0xFFFF;
+                    val2 *= scale;
+                    if(!use_cycles) val1 *= 0xFFFF - scale;
+                    val3 = (val1 + val2) >> 16;
+                    
+                    if(use_cycles) *bp++ = last_cycle_val = (short)((val1 * tone_amp) >> 15);
+                    else *bp++ = last_cycle_val = (short)((val3 * tone_amp) >> 15);
+                }
+
 		tone_phase += tone_incr;
 		tone_phase &= 0x7fffffff;
+                
+                
+                if( ( (tone_phase + tone_incr) & 0x7fffffff) < tone_incr ){
+                    if(use_cycles && cycles > 0) cycles-=1;
+                    if(use_cycles && cycles < 1) {
+                        continue;
+                    }
+                    if(tone_phase < tone_incr) roundsinperiod =0;
+                }
+
       }
       break;
       
@@ -104,15 +128,15 @@ void AudioSynthWaveform::update(void)
       for(int i = 0;i < AUDIO_BLOCK_SAMPLES;i++) {
         *bp++ = ((short)(tone_phase>>15)*tone_amp) >> 15;
         // phase and incr are both unsigned 32-bit fractions
-        tone_phase += tone_incr;    
+        tone_phase += tone_incr;
       }
       break;
 
     case WAVEFORM_SAWTOOTH_REVERSE:
-      for(int i = 0;i < AUDIO_BLOCK_SAMPLES;i++) {
+      for(int i = 0;i < AUDIO_BLOCK_SAMPLES;i++) { 
         *bp++ = ((short)(tone_phase>>15)*tone_amp) >> 15;
          // phase and incr are both unsigned 32-bit fractions
-         tone_phase -= tone_incr;
+        tone_phase -= tone_incr;
       }
       break;
 
@@ -154,6 +178,7 @@ void AudioSynthWaveform::update(void)
         tone_phase += tone_incr;
       }
       break;
+    
     }
     if (tone_offset) {
 	bp = block->data;
@@ -163,6 +188,9 @@ void AudioSynthWaveform::update(void)
 		*bp++ = signed_saturate_rshift(val1 + tone_offset, 16, 0);
 	} while (bp < end);
     }
+    // debug output for cycles
+    //if(use_cycles) Serial.printf("%d, %d \n" ,tone_phase,tone_incr);
+        
     transmit(block,0);
     release(block);
   }
