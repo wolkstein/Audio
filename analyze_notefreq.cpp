@@ -20,27 +20,15 @@
  * THE SOFTWARE.
  */
 
+#include "Arduino.h"
 #include "analyze_notefreq.h"
+//#include "analyze_notefreq_fast.h"
 #include "utility/dspinst.h"
 #include "arm_math.h"
+//#include "Arduino.h"
 
-#define HALF_BLOCKS AUDIO_GUITARTUNER_BLOCKS * 64
+#define NUM_SAMPLES ( AUDIO_GUITARTUNER_BLOCKS << 7 )
 
-/**
- *  Copy internal blocks of data to class buffer
- *
- *  @param destination destination address
- *  @param source      source address
- */
-static void copy_buffer(void *destination, const void *source) {
-    const uint16_t *src = ( const uint16_t * )source;
-    uint16_t *dst = (  uint16_t * )destination;
-    for (int i=0; i < AUDIO_BLOCK_SAMPLES; i++)  *dst++ = (*src++);
-}
-
-/**
- *  Virtual function to override from Audio Library
- */
 void AudioAnalyzeNoteFrequency::update( void ) {
     
     audio_block_t *block;
@@ -53,31 +41,29 @@ void AudioAnalyzeNoteFrequency::update( void ) {
         return;
     }
     
-    if ( next_buffer ) {
-        blocklist1[state++] = block;
-        if ( !first_run && process_buffer ) process( );
-    } else {
-        blocklist2[state++] = block;
-        if ( !first_run && process_buffer ) process( );
+    /**
+     *  "factor" is the new block size calculatedby
+     *  the decimated shift to incremnt the buffer
+     *  address.
+     */
+    const uint8_t factor = AUDIO_BLOCK_SAMPLES >> decimation_shift;
+    
+    // filter and decimate block by block the incoming signal and store in a buffer.
+    arm_fir_decimate_fast_q15( &firDecimateInst, block->data, AudioBuffer + ( state * factor ), AUDIO_BLOCK_SAMPLES );
+    
+    /**
+     *  when half the blocks + 1 of the total
+     *  blocks have been stored in the buffer
+     *  start processing the data.
+     */
+    if ( state++ >= AUDIO_GUITARTUNER_BLOCKS >> 1 ) {
+        
+        if ( process_buffer ) process( AudioBuffer );
+        
+        if ( state == 0 ) process_buffer = true;
     }
     
-    if ( state >= AUDIO_GUITARTUNER_BLOCKS ) {
-        if ( next_buffer ) {
-            if ( !first_run && process_buffer ) process( );
-            for ( int i = 0; i < AUDIO_GUITARTUNER_BLOCKS; i++ ) copy_buffer( AudioBuffer+( i * 0x80 ), blocklist1[i]->data );
-            for ( int i = 0; i < AUDIO_GUITARTUNER_BLOCKS; i++ ) release( blocklist1[i] );
-            next_buffer = false;
-        } else {
-            if ( !first_run && process_buffer ) process( );
-            for ( int i = 0; i < AUDIO_GUITARTUNER_BLOCKS; i++ ) copy_buffer( AudioBuffer+( i * 0x80 ), blocklist2[i]->data );
-            for ( int i = 0; i < AUDIO_GUITARTUNER_BLOCKS; i++ ) release( blocklist2[i] );
-            next_buffer = true;
-        }
-        process_buffer = true;
-        first_run = false;
-        state = 0;
-    }
-    
+    release( block );
 }
 
 /**
@@ -88,42 +74,43 @@ void AudioAnalyzeNoteFrequency::update( void ) {
  *  page 79. Might have to downsample for low fundmental frequencies because of fft buffer
  *  size limit.
  */
-void AudioAnalyzeNoteFrequency::process( void ) {
+void AudioAnalyzeNoteFrequency::process( int16_t *p ) {
     
-    const int16_t *p;
-    p = AudioBuffer;
-    
-    uint16_t cycles = 64;
+    const uint16_t inner_cycles = ( NUM_SAMPLES >> decimation_shift ) >> 1;
+    uint16_t outer_cycles = inner_cycles / AUDIO_GUITARTUNER_BLOCKS;
     uint16_t tau = tau_global;
     do {
-        uint16_t x   = 0;
-        uint64_t  sum = 0;
-        do {
-            int16_t current, lag, delta;
-            lag = *( ( int16_t * )p + ( x+tau ) );
-            current = *( ( int16_t * )p+x );
-            delta = ( current-lag );
-            sum += delta * delta;
-            x += 4;
+        uint64_t sum = 0;
+        int32_t  a1, a2, b1, b2, c1, c2, d1, d2;
+        int32_t  out1, out2, out3, out4;
+        uint16_t blkCnt;
+        int16_t * cur = p;
+        int16_t * lag = p + tau;
+        // unrolling the inner loop by 8
+        blkCnt = inner_cycles >> 3;
+        do
+        {
+            // a(n), b(n), c(n), d(n) each hold two samples
+            a1 = *__SIMD32( cur )++;
+            a2 = *__SIMD32( cur )++;
+            b1 = *__SIMD32( lag )++;
+            b2 = *__SIMD32( lag )++;
+            c1 = *__SIMD32( cur )++;
+            c2 = *__SIMD32( cur )++;
+            d1 = *__SIMD32( lag )++;
+            d2 = *__SIMD32( lag )++;
+            // subract two samples at a time
+            out1 = __QSUB16( a1, b1 );
+            out2 = __QSUB16( a2, b2 );
+            out3 = __QSUB16( c1, d1 );
+            out4 = __QSUB16( c2, d2 );
+            // square the difference
+            sum = multiply_accumulate_16tx16t_add_16bx16b( sum, out1, out1 );
+            sum = multiply_accumulate_16tx16t_add_16bx16b( sum, out2, out2 );
+            sum = multiply_accumulate_16tx16t_add_16bx16b( sum, out3, out3 );
+            sum = multiply_accumulate_16tx16t_add_16bx16b( sum, out4, out4 );
             
-            lag = *( ( int16_t * )p + ( x+tau ) );
-            current = *( ( int16_t * )p+x );
-            delta = ( current-lag );
-            sum += delta * delta;
-            x += 4;
-            
-            lag = *( ( int16_t * )p + ( x+tau ) );
-            current = *( ( int16_t * )p+x );
-            delta = ( current-lag );
-            sum += delta * delta;
-            x += 4;
-            
-            lag = *( ( int16_t * )p + ( x+tau ) );
-            current = *( ( int16_t * )p+x );
-            delta = ( current-lag );
-            sum += delta * delta;
-            x += 4;
-        } while ( x < HALF_BLOCKS );
+        } while( --blkCnt );
         
         uint64_t rs = running_sum;
         rs += sum;
@@ -139,16 +126,19 @@ void AudioAnalyzeNoteFrequency::process( void ) {
             yin_idx         = 1;
             running_sum     = 0;
             tau_global      = 1;
+            state           = 0;
             return;
         }
-    } while ( --cycles );
-    //digitalWriteFast(10, LOW);
-    if ( tau >= HALF_BLOCKS ) {
-        process_buffer  = false;
+        
+    } while ( --outer_cycles );
+    
+    if ( tau >= inner_cycles ) {
+        process_buffer  = true;
         new_output      = false;
         yin_idx         = 1;
         running_sum     = 0;
         tau_global      = 1;
+        state           = 0;
         return;
     }
     tau_global = tau;
@@ -160,7 +150,7 @@ void AudioAnalyzeNoteFrequency::process( void ) {
  *  @param yin  buffer to hold sum*tau value
  *  @param rs   buffer to hold running sum for sampled window
  *  @param head buffer index
- *  @param tau  lag we are currently working on gets incremented
+ *  @param tau  lag we are curly working on gets incremented
  *
  *  @return tau
  */
@@ -178,13 +168,14 @@ uint16_t AudioAnalyzeNoteFrequency::estimate( uint64_t *yin, uint64_t *rs, uint1
         idx0 = _head;
         idx1 = _head + 1;
         idx1 = ( idx1 >= 5 ) ? 0 : idx1;
-        idx2 = head + 2;
-        idx2 = ( idx2 >= 5 ) ? 0 : idx2;
+        idx2 = _head + 2;
+        idx2 = ( idx2 >= 5 ) ? idx2 - 5 : idx2;
         
+        // maybe fixed point would be better here? But how?
         float s0, s1, s2;
-        s0 = ( ( float )*( y+idx0 ) / *( r+idx0 ) );
-        s1 = ( ( float )*( y+idx1 ) / *( r+idx1 ) );
-        s2 = ( ( float )*( y+idx2 ) / *( r+idx2 ) );
+        s0 = ( ( float )*( y+idx0 ) / ( float )*( r+idx0 ) );
+        s1 = ( ( float )*( y+idx1 ) / ( float )*( r+idx1 ) );
+        s2 = ( ( float )*( y+idx2 ) / ( float )*( r+idx2 ) );
         
         if ( s1 < thresh && s1 < s2 ) {
             uint16_t period = _tau - 3;
@@ -201,19 +192,22 @@ uint16_t AudioAnalyzeNoteFrequency::estimate( uint64_t *yin, uint64_t *rs, uint1
  *
  *  @param threshold Allowed uncertainty
  */
-void AudioAnalyzeNoteFrequency::begin( float threshold ) {
+void AudioAnalyzeNoteFrequency::begin( float threshold, int16_t *coeff, uint8_t taps, uint8_t factor ) {
     __disable_irq( );
-    process_buffer = false;
-    yin_threshold  = threshold;
-    periodicity    = 0.0f;
-    next_buffer    = true;
-    running_sum    = 0;
-    tau_global     = 1;
-    first_run      = true;
-    yin_idx        = 1;
-    enabled        = true;
-    state          = 0;
-    data           = 0.0f;
+    process_buffer      = true;
+    yin_threshold       = threshold;
+    periodicity         = 0.0f;
+    running_sum         = 0;
+    tau_global          = 1;
+    yin_idx             = 1;
+    enabled             = true;
+    state               = 0;
+    data                = 0.0f;
+    decimation_factor   = factor;
+    decimation_shift    = log( factor ) / log( 2 );
+    coeff_size          = taps;
+    coeff_p             = coeff;
+    arm_fir_decimate_init_q15( &firDecimateInst, coeff_size, decimation_factor, coeff_p, &coeff_state[0], AUDIO_BLOCK_SAMPLES );
     __enable_irq( );
 }
 
@@ -239,11 +233,11 @@ float AudioAnalyzeNoteFrequency::read( void ) {
     __disable_irq( );
     float d = data;
     __enable_irq( );
-    return AUDIO_SAMPLE_RATE_EXACT / d;
+    return ( AUDIO_SAMPLE_RATE_EXACT / decimation_factor ) / d;
 }
 
 /**
- *  Periodicity of the sampled signal from Yin algorithm from read function.
+ *  Periodicity of the sampled signal.
  *
  *  @return periodicity
  */
@@ -252,6 +246,17 @@ float AudioAnalyzeNoteFrequency::probability( void ) {
     float p = periodicity;
     __enable_irq( );
     return p;
+}
+
+/**
+ *  Initialise parameters.
+ *
+ *  @param thresh    Allowed uncertainty
+ */
+void AudioAnalyzeNoteFrequency::coeff( int16_t *p, int n ) {
+    //coeff_size = n;
+    //coeff_p = p;
+    //arm_fir_decimate_init_q15(&firDecimateInst, coeff_size, 4, coeff_p, coeff_state, 128);
 }
 
 /**

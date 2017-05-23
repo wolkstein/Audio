@@ -23,8 +23,8 @@
 #ifndef AudioAnalyzeNoteFrequency_h_
 #define AudioAnalyzeNoteFrequency_h_
 
-#include "Arduino.h"
 #include "AudioStream.h"
+#include "arm_math.h"
 /***********************************************************************
  *              Safe to adjust these values below                      *
  *                                                                     *
@@ -36,9 +36,13 @@
  *                      (24) is set to measure down to 29.14 Hz        *
  *                      or B(flat)0.                                   *
  *                                                                     *
+ *  2.  MAX_COEFF - Maxium number of coefficeints for the FIR filter.  *
+ *                                                                     *
  ***********************************************************************/
 #define AUDIO_GUITARTUNER_BLOCKS  9
+#define MAX_COEFF                 200
 /***********************************************************************/
+
 class AudioAnalyzeNoteFrequency : public AudioStream {
 public:
     /**
@@ -46,19 +50,26 @@ public:
      *
      *  @return none
      */
-    AudioAnalyzeNoteFrequency( void ) : AudioStream( 1, inputQueueArray ), enabled( false ), new_output(false) {
+    AudioAnalyzeNoteFrequency( void ) : AudioStream( 1, inputQueueArray ),
+    data( 0.0 ),
+    coeff_p( NULL ),
+    enabled( false ),
+    new_output( false ),
+    coeff_size( 0 )
+    
+    {
         
     }
     
     /**
-     *  initialize variables and start conversion
+     *  initialize variables and start
      *
      *  @param threshold Allowed uncertainty
-     *  @param cpu_max   How much cpu usage before throttling
-     *
-     *  @return none
+     *  @param coeff     coefficients for fir filter
+     *  @param taps      number of coefficients, even
+     *  @param factor    must be power of 2
      */
-    void begin( float threshold );
+    void begin( float threshold, int16_t *coeff, uint8_t taps, uint8_t factor );
     
     /**
      *  sets threshold value
@@ -89,6 +100,13 @@ public:
     float probability( void );
     
     /**
+     *  fir decimation coefficents
+     *
+     *  @return none
+     */
+    void coeff( int16_t *p, int n );
+    
+    /**
      *  Audio Library calls this update function ~2.9ms
      *
      *  @return none
@@ -113,22 +131,20 @@ private:
      *
      *  @return none
      */
-    void process( void );
+    void process( int16_t *p );
     
     /**
      *  Variables
      */
-    uint64_t running_sum;
+    float    periodicity, yin_threshold, data;
+    uint64_t running_sum, yin_buffer[5], rs_buffer[5];
     uint16_t tau_global;
-    uint64_t  yin_buffer[5];
-    uint64_t  rs_buffer[5];
-    int16_t  AudioBuffer[AUDIO_GUITARTUNER_BLOCKS*128] __attribute__ ( ( aligned ( 4 ) ) );
-    uint8_t  yin_idx, state;
-    float    periodicity, yin_threshold, cpu_usage_max, data;
-    bool     enabled, next_buffer, first_run;
-    volatile bool new_output, process_buffer;
-    audio_block_t *blocklist1[AUDIO_GUITARTUNER_BLOCKS];
-    audio_block_t *blocklist2[AUDIO_GUITARTUNER_BLOCKS];
+    int16_t  AudioBuffer[AUDIO_GUITARTUNER_BLOCKS*AUDIO_BLOCK_SAMPLES] __attribute__ ( ( aligned ( 4 ) ) );
+    int16_t  coeff_state[AUDIO_BLOCK_SAMPLES + MAX_COEFF];
+    int16_t  *coeff_p;
+    uint8_t  yin_idx, state, coeff_size, decimation_factor, decimation_shift;
+    volatile bool new_output, process_buffer, enabled;
     audio_block_t *inputQueueArray[1];
+    arm_fir_decimate_instance_q15 firDecimateInst;
 };
 #endif
